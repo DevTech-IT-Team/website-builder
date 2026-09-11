@@ -184,5 +184,12 @@ describe('dnd ids', () => {
       { type: 'dropzone', target: { parentId: 'box', parentKind: 'container', index: 1, edge: 'before', accepts: ['text'] } }
     );
     expect(move).toMatchObject({ type: 'move', nodeId: 'el-1', target: { parentId: 'box', index: 1, edge: 'before' } });
+    const overHit = resolveDropAction(
+      'node:element:el-1',
+      'hit:element:el-2',
+      { source: 'canvas', nodeId: 'el-1', kind: 'element', type: 'text', name: 'Text', parentId: 'box', index: 0 },
+      { source: 'canvas', nodeId: 'el-2', kind: 'element', type: 'text', name: 'Text', parentId: 'box', index: 1 }
+    );
+    expect(overHit).toMatchObject({ type: 'move', nodeId: 'el-1', target: { parentId: 'box', index: 1, edge: 'after' } });
   });
 });

@@ -23,10 +23,8 @@ export function DropZone({ parentId, parentKind, index, edge, accepts, label, em
       type: 'dropzone',
       target: { parentId, parentKind, index, edge, accepts },
     } satisfies DropZoneData,
-    disabled: !isDragging,
+    disabled: false,
   });
-
-  if (!isDragging && !empty) return null;
 
   const showLine = isDragging && isOver && !empty;
   const showEmpty = empty;
@@ -50,15 +48,23 @@ export function DropZone({ parentId, parentKind, index, edge, accepts, label, em
                 : 'border-slate-200 bg-slate-50/70 text-slate-400'
             )
           : cn(
-              'pointer-events-auto relative z-10 mx-2 rounded-full',
-              isDragging ? 'h-3 -my-0.5' : 'h-0',
-              showLine && 'bg-sky-500'
+              'pointer-events-auto relative z-20 mx-1 flex items-center justify-center',
+              isDragging ? 'h-5 -my-1 min-h-5' : 'h-0',
+              showLine && 'bg-sky-500/20',
             )
       )}
     >
       {showEmpty ? (isOver ? 'Drop here' : label || 'Drop elements here') : null}
+      {showLine && (
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-x-2 z-20 rounded-full bg-sky-500',
+            parentKind === 'page' ? 'top-1/2 h-1 -translate-y-1/2' : 'h-1 w-[calc(100%-1rem)]',
+          )}
+        />
+      )}
       {showLine && parentKind === 'page' && (
-        <div className="pointer-events-none absolute inset-x-0 top-1/2 z-20 -translate-y-1/2 border-t-2 border-dashed border-[#0F172A] bg-white/90 py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-[#0F172A]">
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 z-20 -translate-y-1/2 py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-[#0F172A]">
           Drop section here
         </div>
       )}

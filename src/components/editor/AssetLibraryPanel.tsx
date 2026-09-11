@@ -12,7 +12,7 @@ import useBuilderStore from '@/store/useBuilderStore';
 import type { Asset } from '@/store/useBuilderStore';
 import { useToast } from '@/hooks/use-toast';
 import { DuplicateAssetDialog } from '@/components/ui/DuplicateAssetDialog';
-import { isAssetVisibleToUsers } from '@/lib/assetVisibility';
+import { isAdminGlobalAsset, isAssetVisibleToUsers, canDeleteAsset } from '@/lib/assetVisibility';
 
 // ── Shared card used in every tab grid ─────────────────────────────────────
 interface AssetCardProps {
@@ -25,7 +25,8 @@ interface AssetCardProps {
 }
 
 function AssetCard({ item, copiedId, onCopy, onDelete, onPreview }: AssetCardProps) {
-    const isGlobal = !item.websiteId || item.scope === 'GLOBAL' || item.isGlobal;
+    const isGlobal = isAdminGlobalAsset(item);
+    const canDelete = canDeleteAsset(item);
     return (
         <div
             role="button"
@@ -54,7 +55,7 @@ function AssetCard({ item, copiedId, onCopy, onDelete, onPreview }: AssetCardPro
                 </div>
             )}
 
-            {!isGlobal && (
+            {canDelete && (
                 <button
                     type="button"
                     aria-label="Delete asset"
@@ -109,6 +110,7 @@ export function AssetLibraryPanel() {
         // Fetch both website-scoped assets AND global (dashboard) assets in parallel
         void fetchAssets({ websiteId: activeWebsiteId });
         void fetchAssets();
+        void fetchAssets({ scope: 'GLOBAL' });
     }, [activeWebsiteId, fetchAssets]);
 
     const assets = activeWebsiteId ? getScopedAssets(activeWebsiteId) : [];
@@ -122,7 +124,13 @@ export function AssetLibraryPanel() {
     const isAdminUser = ['ADMIN', 'SUPER_ADMIN', 'INSTITUTION_ADMIN'].includes(user?.role);
     const visibleAssets = isAdminUser
         ? assets
-        : assets.filter((item) => item.websiteId === activeWebsiteId || item.scope === 'WEBSITE' || isAssetVisibleToUsers(item.id));
+        : assets.filter((item) => item.websiteId === activeWebsiteId || item.scope === 'WEBSITE' || isAdminGlobalAsset(item) || isAssetVisibleToUsers(item.id, item));
+
+    const handleDeleteLibraryAsset = (id: string) => {
+        const item = assets.find((asset) => asset.id === id);
+        if (!activeWebsiteId || !item || !canDeleteAsset(item)) return;
+        void deleteAsset(id, { websiteId: activeWebsiteId });
+    };
 
     const filteredMedia = visibleAssets.filter(item =>
         item.name.toLowerCase().includes(search.toLowerCase())
@@ -283,7 +291,7 @@ export function AssetLibraryPanel() {
                                             copiedId={copiedId}
                                             activeWebsiteId={activeWebsiteId}
                                             onCopy={handleCopy}
-                                            onDelete={(id) => activeWebsiteId ? void deleteAsset(id, { websiteId: activeWebsiteId }) : undefined}
+                                            onDelete={handleDeleteLibraryAsset}
                                             onPreview={setPreviewAsset}
                                         />
                                     ))}
@@ -307,7 +315,7 @@ export function AssetLibraryPanel() {
                                             copiedId={copiedId}
                                             activeWebsiteId={activeWebsiteId}
                                             onCopy={handleCopy}
-                                            onDelete={(id) => activeWebsiteId ? void deleteAsset(id, { websiteId: activeWebsiteId }) : undefined}
+                                            onDelete={handleDeleteLibraryAsset}
                                             onPreview={setPreviewAsset}
                                         />
                                     ))}
@@ -332,7 +340,7 @@ export function AssetLibraryPanel() {
                                             copiedId={copiedId}
                                             activeWebsiteId={activeWebsiteId}
                                             onCopy={handleCopy}
-                                            onDelete={(id) => activeWebsiteId ? void deleteAsset(id, { websiteId: activeWebsiteId }) : undefined}
+                                            onDelete={handleDeleteLibraryAsset}
                                             onPreview={setPreviewAsset}
                                         />
                                     ))}

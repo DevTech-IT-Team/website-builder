@@ -17,6 +17,7 @@ import { AssetLibraryPanel } from "./AssetLibraryPanel";
 import { DesignSystemPanel } from "./DesignSystemPanel";
 import { VersionHistoryPanel } from "./VersionHistoryPanel";
 import Loading from "@/components/Common/LoadingUI";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -82,14 +83,14 @@ function NavRailButton({
       aria-label={label}
       aria-current={isActive ? "page" : undefined}
       className={cn(
-        "flex w-full flex-col items-center gap-1 rounded-xl px-1 py-2 transition-colors",
+        "flex w-full flex-col items-center gap-0.5 rounded-md px-0.5 py-1 transition-colors",
         isActive
           ? "bg-white/15 font-semibold text-white"
           : "text-slate-300 hover:bg-white/10 hover:text-white",
       )}
     >
-      <Icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} />
-      <span className="max-w-full text-center text-[9px] font-medium leading-tight tracking-wide">
+      <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+      <span className="max-w-full px-0.5 text-center text-[8px] font-medium leading-[1.15] tracking-wide">
         {label}
       </span>
     </button>
@@ -106,40 +107,42 @@ function EditorLeftSidebar({
   onClose?: () => void;
 }) {
   return (
-    <div className="flex h-full w-full overflow-hidden bg-white">
-      <nav className="flex w-[4.75rem] shrink-0 flex-col items-center border-r border-white/10 bg-[#0F172A] px-1.5 py-3">
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close sidebar"
-            className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-          >
-            <X className="h-[18px] w-[18px]" strokeWidth={1.75} />
-          </button>
-        )}
-        <div className="flex w-full min-h-0 flex-1 flex-col items-center gap-0.5 overflow-y-auto">
-          {NAV_ITEMS.map((item) => (
-            <NavRailButton
-              key={item.id}
-              id={`tour-nav-${item.id}`}
-              icon={item.icon}
-              label={item.label}
-              isActive={leftNavTab === item.id}
-              onClick={() => setLeftNavTab(item.id)}
-            />
-          ))}
-        </div>
+    <div className="h-full w-full flex overflow-hidden bg-white">
+      <div className="flex w-14 shrink-0 flex-col items-center border-r border-white/10 bg-[#131b2e]">
+        <nav className="flex min-h-0 w-full flex-1 flex-col items-center bg-[#0f172a] px-0.5 py-1.5">
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close sidebar"
+              className="mb-1 flex h-7 w-7 items-center justify-center rounded-md text-slate-200 hover:bg-white/10 hover:text-white"
+            >
+              <X className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+          )}
+          <div className="flex w-full flex-col items-center gap-0 overflow-y-auto">
+            {NAV_ITEMS.map((item) => (
+              <NavRailButton
+                key={item.id}
+                id={`tour-nav-${item.id}`}
+                icon={item.icon}
+                label={item.label}
+                isActive={leftNavTab === item.id}
+                onClick={() => setLeftNavTab(item.id)}
+              />
+            ))}
+          </div>
 
-        <div className="mt-auto w-full border-t border-white/10 pt-2">
-          <NavRailButton
-            icon={Settings}
-            label="Settings"
-            isActive={leftNavTab === "settings"}
-            onClick={() => setLeftNavTab("settings")}
-          />
-        </div>
-      </nav>
+          <div className="mt-auto w-full pt-1">
+            <NavRailButton
+              icon={Settings}
+              label="Settings"
+              isActive={leftNavTab === "settings"}
+              onClick={() => setLeftNavTab("settings")}
+            />
+          </div>
+        </nav>
+      </div>
 
       <EditorSidebarPanels leftNavTab={leftNavTab} />
     </div>
@@ -255,7 +258,23 @@ function EditorContent() {
             className="bg-slate-100/30 overflow-hidden flex flex-col relative z-0 isolate min-w-0"
           >
             <div className="absolute inset-0 bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:20px_20px] opacity-40 pointer-events-none"></div>
-            <BuilderCanvas />
+            <ErrorBoundary
+              fallback={
+                <div className="flex h-full flex-col items-center justify-center gap-3 bg-white text-slate-600">
+                  <p className="text-sm font-semibold text-slate-900">The canvas failed to load</p>
+                  <p className="max-w-sm text-center text-xs text-slate-500">Reload the editor or try selecting another page.</p>
+                  <button
+                    type="button"
+                    className="rounded-full bg-[#0F172A] px-4 py-2 text-xs font-semibold text-white"
+                    onClick={() => window.location.reload()}
+                  >
+                    Reload editor
+                  </button>
+                </div>
+              }
+            >
+              <BuilderCanvas />
+            </ErrorBoundary>
           </ResizablePanel>
           {showRight && (
             <>

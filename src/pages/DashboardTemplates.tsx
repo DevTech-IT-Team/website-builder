@@ -156,11 +156,22 @@ export default function DashboardTemplates() {
   // ─── Use template ─────────────────────────────────────────────────────────
   const handleUseTemplate = async (template: any) => {
     if (creatingId) return;
+    const editorTab = window.open('about:blank', '_blank');
     try {
       setCreatingId(template.id);
       const id = await createWebsite(`${template.name} Site`, template.id);
-      navigate(`/builder/${id}`);
+      const builderUrl = `${window.location.origin}/builder/${id}`;
+      if (editorTab) {
+        editorTab.opener = null;
+        editorTab.location.replace(builderUrl);
+      } else {
+        toast({
+          title: 'Allow pop-ups to open the editor',
+          description: 'Your site was created. Enable pop-ups for this site, then click Use Template again — or open it from Dashboard.',
+        });
+      }
     } catch (err: any) {
+      editorTab?.close();
       toast({
         title: 'Could not use template',
         description: err?.message || 'Please try again.',

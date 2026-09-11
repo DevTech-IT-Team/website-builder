@@ -52,15 +52,16 @@ export interface Asset {
     url: string;
     size?: string;
     date: string;
-    scope?: 'GLOBAL' | 'WEBSITE';
+    scope?: 'GLOBAL' | 'WEBSITE' | 'USER';
     websiteId?: string;
     isGlobal?: boolean;
+    ownerId?: string;
     ownerName?: string;
 }
 
 type AssetScope = {
     websiteId?: string;
-    scope?: 'GLOBAL' | 'WEBSITE';
+    scope?: 'GLOBAL' | 'WEBSITE' | 'USER';
 };
 
 function normalizeAsset(raw: any, uploadScope: AssetScope = {}): Asset {
@@ -71,9 +72,10 @@ function normalizeAsset(raw: any, uploadScope: AssetScope = {}): Asset {
         url: raw.url,
         size: raw.size,
         date: raw.date ?? raw.created_at ?? raw.createdAt ?? new Date().toISOString(),
-        scope: raw.scope,
+        scope: typeof raw.scope === 'string' ? raw.scope.toUpperCase() : raw.scope,
         websiteId: raw.websiteId ?? raw.website_id,
-        isGlobal: raw.isGlobal ?? raw.is_global,
+        isGlobal: raw.isGlobal ?? raw.is_global ?? raw.global,
+        ownerId: raw.ownerId ?? raw.owner_id ?? raw.user_id ?? raw.created_by ?? raw.uploaded_by,
         ownerName: raw.ownerName ?? raw.owner_name,
     };
 
@@ -81,14 +83,35 @@ function normalizeAsset(raw: any, uploadScope: AssetScope = {}): Asset {
         return { ...asset, scope: 'GLOBAL', isGlobal: true, websiteId: undefined };
     }
 
+    if (uploadScope.scope === 'USER') {
+        return { ...asset, scope: 'USER', isGlobal: false };
+    }
+
     if (uploadScope.websiteId) {
         return { ...asset, scope: 'WEBSITE', websiteId: uploadScope.websiteId, isGlobal: false };
+    }
+
+    if (asset.scope === 'USER') {
+        return { ...asset, scope: 'USER', isGlobal: false };
     }
 
     if (asset.scope === 'GLOBAL' || asset.isGlobal) {
         return { ...asset, scope: 'GLOBAL', isGlobal: true };
     }
 
+    return asset;
+}
+
+function attachCurrentOwner(asset: Asset): Asset {
+    if (asset.ownerId) return asset;
+    try {
+        const user = JSON.parse(localStorage.getItem('user') || 'null');
+        if (user?.id) {
+            return { ...asset, ownerId: user.id, ownerName: asset.ownerName ?? user.name };
+        }
+    } catch {
+        /* ignore */
+    }
     return asset;
 }
 
@@ -138,6 +161,7 @@ export interface EditorState {
     showRightPanel: boolean;
     saveStatus: SaveStatus;
     dropTarget: DropTarget | null;
+    showComponentBar: boolean;
     tour: {
         isActive: boolean;
         step: number;
@@ -189,12 +213,13 @@ export interface BuilderStore {
     updateSection: (sectionId: string, updates: any) => void;
     deleteSection: (sectionId: string) => void;
     reorderSections: (ids: string[]) => void;
-    addComponent: (sectionId: string, component: any) => void;
-    updateComponent: (sectionId: string, componentId: string, updates: any) => void;
+    addComponent: (sectionId: string, component: any) => string | null;
+    updateComponent: (sectionId: string, componentId: string, updates: any, options?: { persist?: boolean }) => void;
     deleteComponent: (sectionId: string, componentId: string) => void;
+    moveComponent: (fromSectionId: string, toSectionId: string, componentId: string, position?: { x: number; y: number }) => void;
     addAsset: (asset: Omit<Asset, 'id' | 'date'>) => void;
-    uploadAsset: (file: File, scope?: AssetScope) => Promise<void>;
-    importAssetFromUrl: (name: string, url: string, scope?: AssetScope) => Promise<void>;
+    uploadAsset: (file: File, scope?: AssetScope) => Promise<Asset>;
+    importAssetFromUrl: (name: string, url: string, scope?: AssetScope) => Promise<Asset>;
     deleteAsset: (id: string, scope?: AssetScope) => Promise<void>;
     getScopedAssets: (websiteId?: string) => Asset[];
     getActiveWebsite: () => Website | undefined;
@@ -252,6 +277,7 @@ const useBuilderStore = create<BuilderStore>()(
                 showRightPanel: true,
                 saveStatus: 'idle',
                 dropTarget: null,
+                showComponentBar: false,
                 tour: {
                     isActive: false,
                     step: 0,
@@ -299,6 +325,7 @@ const useBuilderStore = create<BuilderStore>()(
                         saveStatus: 'idle',
                         device: 'desktop',
                         zoom: 100,
+                        showComponentBar: false,
                     }
                 }));
             },
@@ -321,7 +348,24 @@ const useBuilderStore = create<BuilderStore>()(
                         return;
                     }
 
-                    set({ globalAssets: assets });
+                    set((state) => {
+                        const byId = new Map(state.globalAssets.map((asset) => [asset.id, asset]));
+                        assets.forEach((asset: Asset) => {
+                            const prev = byId.get(asset.id);
+                            if (prev && (prev.scope === 'USER' || (!prev.isGlobal && prev.ownerId))) {
+                                byId.set(asset.id, {
+                                    ...asset,
+                                    scope: 'USER',
+                                    isGlobal: false,
+                                    ownerId: prev.ownerId ?? asset.ownerId,
+                                    ownerName: prev.ownerName ?? asset.ownerName,
+                                });
+                                return;
+                            }
+                            byId.set(asset.id, asset);
+                        });
+                        return { globalAssets: Array.from(byId.values()) };
+                    });
                 } catch (error) {
                     console.error('Failed to fetch assets from backend:', error);
                 }
@@ -341,24 +385,38 @@ const useBuilderStore = create<BuilderStore>()(
                     const rawWebsites = (response.data && response.data.websites) || [];
                     const websitesFromBackend = Array.isArray(rawWebsites) ? rawWebsites : (rawWebsites.websites || []);
                     
-                    const mapWebsite = (w: any) => ({
-                        id: w.id,
-                        name: w.name,
-                        status: w.status,
-                        lastEdited: w.updated_at || w.created_at,
-                        pages: w.content?.pages || [],
-                        activePageId: w.content?.activePageId || null,
-                        templateId: w.content?.templateId || 'blank',
-                        publishedUrl: w.content?.builderMeta?.publishedUrl || undefined,
-                        subdomain: w.content?.builderMeta?.subdomain || undefined,
-                        customDomain: w.content?.builderMeta?.customDomain || undefined,
-                        builderMeta: w.content?.builderMeta || undefined,
-                        sourceTemplateId: w.source_template_id || w.content?.sourceTemplateId || undefined,
-                        institution: w.institution,
-                        institution_id: w.institution_id,
-                        owner_id: w.owner_id,
-                        settings: w.settings
-                    });
+                    const existingById = new Map(get().websites.map((site) => [site.id, site]));
+                    const mapWebsite = (w: any) => {
+                        const mapped = {
+                            id: w.id,
+                            name: w.name,
+                            status: w.status,
+                            lastEdited: w.updated_at || w.created_at,
+                            pages: w.content?.pages || [],
+                            activePageId: w.content?.activePageId || null,
+                            templateId: w.content?.templateId || 'blank',
+                            publishedUrl: w.content?.builderMeta?.publishedUrl || undefined,
+                            subdomain: w.content?.builderMeta?.subdomain || undefined,
+                            customDomain: w.content?.builderMeta?.customDomain || undefined,
+                            builderMeta: w.content?.builderMeta || undefined,
+                            sourceTemplateId: w.source_template_id || w.content?.sourceTemplateId || undefined,
+                            institution: w.institution,
+                            institution_id: w.institution_id,
+                            owner_id: w.owner_id,
+                            settings: w.settings
+                        };
+                        const existing = existingById.get(w.id);
+                        if (existing?.pages?.length) {
+                            return {
+                                ...mapped,
+                                pages: existing.pages,
+                                activePageId: existing.activePageId || mapped.activePageId,
+                                templateId: existing.templateId || mapped.templateId,
+                                builderMeta: existing.builderMeta || mapped.builderMeta,
+                            };
+                        }
+                        return mapped;
+                    };
 
                     const activeWebsites = websitesFromBackend.map(mapWebsite);
 
@@ -384,11 +442,19 @@ const useBuilderStore = create<BuilderStore>()(
                         ...activeWebsites.filter((w: any) => !deletedIds.has(w.id)),
                         ...deletedWebsites,
                     ];
+                    existingById.forEach((site) => {
+                        if (!merged.some((item) => item.id === site.id)) {
+                            merged.push(site);
+                        }
+                    });
+
+                    if (merged.length === 0 && existingById.size > 0) {
+                        return;
+                    }
 
                     set({ websites: merged });
                 } catch (error) {
                     console.error("Failed to fetch websites from backend:", error);
-                    set({ websites: [] });
                 }
             },
 
@@ -417,17 +483,20 @@ const useBuilderStore = create<BuilderStore>()(
                     const response = await websiteApi.createWebsite(createPayload);
                     
                     const w = response.data.website;
-                    const persistedContent = w.content || initialContent;
+                    const backendPages = w.content?.pages;
+                    const localPages = Array.isArray(backendPages) && backendPages.length > 0
+                        ? backendPages
+                        : initialContent.pages;
                     const newWebsite: Website = {
                         id: w.id,
                         name: w.name,
                         lastEdited: w.updated_at || w.created_at,
                         status: w.status,
-                        pages: persistedContent.pages || initialContent.pages,
-                        activePageId: persistedContent.activePageId || initialContent.activePageId,
-                        templateId: persistedContent.templateId || template,
-                        builderMeta: persistedContent.builderMeta,
-                        sourceTemplateId: w.source_template_id || persistedContent.sourceTemplateId || undefined
+                        pages: localPages,
+                        activePageId: w.content?.activePageId || initialContent.activePageId,
+                        templateId: w.content?.templateId || initialContent.templateId,
+                        builderMeta: w.content?.builderMeta,
+                        sourceTemplateId: w.source_template_id || w.content?.sourceTemplateId || undefined
                     };
 
                     set((state) => ({
@@ -456,104 +525,24 @@ const useBuilderStore = create<BuilderStore>()(
                 set((state) => ({
                     websites: state.websites.map(w => w.id === id ? { ...w, ...updates } : w)
                 }));
-                
-                // If the update includes content-affecting fields, sync to backend
-                if (updates.pages || updates.activePageId || updates.name || updates.status) {
-                    try {
-                        const { default: websiteApi } = await import('../api/website');
-                        const website = get().websites.find(w => w.id === id);
-                        if (website) {
-                            await websiteApi.updateWebsite(id, {
-                                name: website.name,
-                                status: website.status,
-                                content: {
-                                    pages: website.pages,
-                                    activePageId: website.activePageId,
-                                    templateId: website.templateId,
-                                    builderMeta: website.builderMeta
-                                }
-                            });
-                        }
-                    } catch (error) {
-                        console.error("Failed to update website on backend:", error);
-                    }
-                }
+                // PATCH /websites/:id disabled — keep canvas changes local only.
+                // if (updates.pages || updates.activePageId || updates.name || updates.status) {
+                //     const { default: websiteApi } = await import('../api/website');
+                //     await websiteApi.updateWebsite(id, { ... });
+                // }
             },
 
             saveActiveWebsite: async () => {
-                if (_saveTimer) clearTimeout(_saveTimer);
-                set((state) => ({ editor: { ...state.editor, saveStatus: 'saving' } }));
-                _saveTimer = setTimeout(async () => {
-                const state = get();
-                const activeId = state.activeWebsiteId;
-                if (!activeId) return;
-                
-                const website = state.websites.find(w => w.id === activeId);
-                if (!website) return;
-                
-                try {
-                    if (state.templateEditor && state.templateEditor.id === activeId) {
-                        const { default: templateApi } = await import('../api/templates');
-                        await templateApi.updateWebsiteTemplate(
-                            state.templateEditor.id,
-                            builderWebsiteToTemplatePayload(website, state.templateEditor)
-                        );
-                        set((current) => ({ editor: { ...current.editor, saveStatus: 'saved' } }));
-                        return;
-                    }
-
-                    const { default: websiteApi } = await import('../api/website');
-                    await websiteApi.updateWebsite(activeId, {
-                        name: website.name,
-                        status: website.status,
-                        content: {
-                            pages: website.pages,
-                            activePageId: website.activePageId,
-                            templateId: website.templateId,
-                            builderMeta: website.builderMeta
-                        }
-                    });
-                    set((current) => ({ editor: { ...current.editor, saveStatus: 'saved' } }));
-                } catch (error) {
-                    console.error("Auto-save failed:", error);
-                    set((current) => ({ editor: { ...current.editor, saveStatus: 'error' } }));
-                }
-                }, SAVE_DEBOUNCE_MS);
+                // Autosave API is off until canvas move/resize is finished.
+                // Do not PATCH /websites/:id and do not flip saveStatus (avoids extra renders mid-drag).
             },
 
             selectWebsite: async (id) => {
-                let website = get().websites.find(w => w.id === id);
-                if (!website) {
-                    // Fetch from backend if not in local store
-                    try {
-                        const { default: websiteApi } = await import('../api/website');
-                        const response = await websiteApi.getWebsiteById(id);
-                        const w = response.data?.website || response.data;
-                        if (w) {
-                            website = {
-                                id: w.id,
-                                name: w.name,
-                                status: w.status,
-                                lastEdited: w.updated_at || w.created_at,
-                                pages: w.content?.pages || [],
-                                activePageId: w.content?.activePageId || null,
-                                templateId: w.content?.templateId || 'blank',
-                                publishedUrl: w.content?.builderMeta?.publishedUrl || undefined,
-                                subdomain: w.content?.builderMeta?.subdomain || undefined,
-                                customDomain: w.content?.builderMeta?.customDomain || undefined,
-                                builderMeta: w.content?.builderMeta || undefined,
-                                sourceTemplateId: w.source_template_id || w.content?.sourceTemplateId || undefined,
-                                institution: w.institution,
-                                institution_id: w.institution_id,
-                                owner_id: w.owner_id,
-                                settings: w.settings
-                            };
-                            set((state) => ({ websites: [...state.websites, website!] }));
-                        }
-                    } catch (error) {
-                        console.error("Failed to fetch website:", error);
-                    }
-                }
+                const website = get().websites.find(w => w.id === id);
+                // GET /websites/:id is disabled. Opening a project uses the local store
+                // so a stale or empty API payload cannot overwrite canvas changes.
+                // const { default: websiteApi } = await import('../api/website');
+                // const response = await websiteApi.getWebsiteById(id);
                 if (website) {
                     set({
                         activeWebsiteId: id,
@@ -786,15 +775,16 @@ const useBuilderStore = create<BuilderStore>()(
 
             addComponent: (sectionId, component) => {
                 const page = get().getActivePage();
-                if (!page) return;
+                if (!page) return null;
+                const id = component.id || uuidv4();
 
                 const newSections = page.sections.map(s => {
                     if (s.id === sectionId) {
                         return {
                             ...s,
                             components: [...(s.components || []), {
-                                id: uuidv4(),
                                 ...component,
+                                id,
                                 position: component.position || { x: 0, y: 0 },
                                 style: component.style || {}
                             }]
@@ -805,9 +795,10 @@ const useBuilderStore = create<BuilderStore>()(
 
                 get().updateCurrentPage({ sections: newSections });
                 get().saveActiveWebsite();
+                return id;
             },
 
-            updateComponent: (sectionId, componentId, updates) => {
+            updateComponent: (sectionId, componentId, updates, options) => {
                 const page = get().getActivePage();
                 if (!page) return;
 
@@ -824,7 +815,7 @@ const useBuilderStore = create<BuilderStore>()(
                 });
 
                 get().updateCurrentPage({ sections: newSections });
-                get().saveActiveWebsite();
+                if (options?.persist !== false) get().saveActiveWebsite();
             },
 
             deleteComponent: (sectionId, componentId) => {
@@ -845,6 +836,40 @@ const useBuilderStore = create<BuilderStore>()(
                 get().saveActiveWebsite();
             },
 
+            moveComponent: (fromSectionId, toSectionId, componentId, position) => {
+                const page = get().getActivePage();
+                if (!page) return;
+                if (fromSectionId === toSectionId) {
+                    if (position) get().updateComponent(fromSectionId, componentId, { position });
+                    return;
+                }
+
+                let moved: Record<string, unknown> | null = null;
+                const stripped = page.sections.map((section) => {
+                    if (section.id !== fromSectionId) return section;
+                    const components = section.components || [];
+                    moved = components.find((component) => component.id === componentId) || null;
+                    return { ...section, components: components.filter((component) => component.id !== componentId) };
+                });
+                if (!moved) return;
+
+                const newSections = stripped.map((section) => {
+                    if (section.id !== toSectionId) return section;
+                    return {
+                        ...section,
+                        components: [
+                            ...(section.components || []),
+                            { ...moved, position: position || moved.position },
+                        ],
+                    };
+                });
+
+                get().updateCurrentPage({ sections: newSections });
+                get().saveActiveWebsite();
+                get().selectSection(toSectionId);
+                get().selectComponent(componentId);
+            },
+
             addAsset: (asset) => set((state) => ({
                 globalAssets: [
                     {
@@ -861,7 +886,7 @@ const useBuilderStore = create<BuilderStore>()(
                 try {
                     const { default: assetApi } = await import('../api/assets');
                     const response = await assetApi.uploadAsset(file, scope);
-                    const asset = normalizeAsset(response.data.asset, scope);
+                    const asset = attachCurrentOwner(normalizeAsset(response.data.asset, scope));
 
                     if (scope.websiteId) {
                         set((state) => ({
@@ -873,10 +898,11 @@ const useBuilderStore = create<BuilderStore>()(
                                 ],
                             }
                         }));
-                        return;
+                        return asset;
                     }
 
-                    set((state) => ({ globalAssets: [asset, ...state.globalAssets] }));
+                    set((state) => ({ globalAssets: [asset, ...state.globalAssets.filter((item) => item.id !== asset.id)] }));
+                    return asset;
                 } catch (error) {
                     console.error('Failed to upload asset:', error);
                     throw error;
@@ -887,7 +913,7 @@ const useBuilderStore = create<BuilderStore>()(
                 try {
                     const { default: assetApi } = await import('../api/assets');
                     const response = await assetApi.importAssetFromUrl({ name, url }, scope);
-                    const asset = normalizeAsset(response.data.asset, scope);
+                    const asset = attachCurrentOwner(normalizeAsset(response.data.asset, scope));
 
                     if (scope.websiteId) {
                         set((state) => ({
@@ -899,10 +925,11 @@ const useBuilderStore = create<BuilderStore>()(
                                 ],
                             }
                         }));
-                        return;
+                        return asset;
                     }
 
-                    set((state) => ({ globalAssets: [asset, ...state.globalAssets] }));
+                    set((state) => ({ globalAssets: [asset, ...state.globalAssets.filter((item) => item.id !== asset.id)] }));
+                    return asset;
                 } catch (error) {
                     console.error('Failed to import asset from URL:', error);
                     throw error;
@@ -1074,6 +1101,7 @@ const useBuilderStore = create<BuilderStore>()(
                     selectedComponentId: null,
                     selectedNodeId: id,
                     selectedKind: id ? 'section' : null,
+                    showComponentBar: false,
                     showRightPanel: id ? true : state.editor.showRightPanel,
                 }
             })),
@@ -1084,6 +1112,7 @@ const useBuilderStore = create<BuilderStore>()(
                     selectedComponentId: id,
                     selectedNodeId: id,
                     selectedKind: id ? 'element' : state.editor.selectedKind,
+                    showComponentBar: id ? state.editor.showComponentBar : false,
                     showRightPanel: !!id || state.editor.showRightPanel,
                 }
             })),
@@ -1289,6 +1318,8 @@ const useBuilderStore = create<BuilderStore>()(
             name: 'website-builder-storage',
             partialize: (state) => ({
                 websites: state.websites,
+                activeWebsiteId: state.activeWebsiteId,
+                activePageId: state.activePageId,
                 globalAssets: state.globalAssets,
                 websiteAssetsByWebsiteId: state.websiteAssetsByWebsiteId,
             }),

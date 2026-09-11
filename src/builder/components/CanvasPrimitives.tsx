@@ -154,6 +154,7 @@ export const CanvasElementView = memo(function CanvasElementView({
         <img
           src={String(element.content.src || '')}
           alt={String(element.content.alt || '')}
+          draggable={false}
           loading="lazy"
           decoding="async"
           style={css}

@@ -60,6 +60,7 @@ export function BuilderProvider({ children, initialPage }: any) {
     addComponent: store.addComponent,
     updateComponent: store.updateComponent,
     deleteComponent: store.deleteComponent,
+    moveComponent: store.moveComponent,
     undo: store.undo,
     redo: store.redo,
     canUndo: store.historyIndex > 0,

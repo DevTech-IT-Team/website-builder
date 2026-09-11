@@ -211,19 +211,6 @@ const UserDashboard = () => {
         };
     }, [isAdmin, fetchWebsites]);
 
-    // Fetch DB templates
-    useEffect(() => {
-        templateApi.getWebsiteTemplates()
-            .then(res => {
-                const raw = res.data?.data || res.data || [];
-                const flat: any[] = Array.isArray(raw) ? raw : Object.values(raw).flat();
-                setDbTemplates(flat.filter((t: any) => !t.deletedAt));
-            })
-            .catch(() => setDbTemplates([]));
-        fetchWebsites(undefined, isAdmin);
-    }, [isAdmin, fetchWebsites]);
-
-    // Fetch DB templates
     useEffect(() => {
         templateApi.getWebsiteTemplates()
             .then(res => {

@@ -18,6 +18,7 @@ const DashboardSettings = React.lazy(() => import("./pages/DashboardSettings"));
 const TemplateEditor = React.lazy(() => import("./pages/TemplateEditor"));
 const Organizations = React.lazy(() => import("./pages/dashboard/Organizations"));
 const WebsiteEditor = React.lazy(() => import("./components/editor/WebsiteEditor").then(m => ({ default: m.WebsiteEditor })));
+const EditorShell = React.lazy(() => import("./features/editor").then(m => ({ default: m.EditorShell })));
 const Login = React.lazy(() => import("./pages/Login"));
 const ResetPassword = React.lazy(() => import("./pages/ResetPassword"));
 const VerifyEmail = React.lazy(() => import("./pages/VerifyEmail"));
@@ -98,6 +99,7 @@ const App = () => (
                 <Route path="profile" element={<DashboardProfile />} />
               </Route>
               <Route path="/builder/:id" element={<WebsiteEditor />} />
+              <Route path="/editor" element={<EditorShell />} />
               <Route path="/template-builder/:id" element={<TemplateEditor />} />
             </Route>
             <Route path="/features" element={<Features />} />

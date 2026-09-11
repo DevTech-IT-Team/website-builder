@@ -4,7 +4,6 @@ import {
   DragOverlay,
   KeyboardSensor,
   MeasuringStrategy,
-  PointerSensor,
   pointerWithin,
   rectIntersection,
   useSensor,
@@ -18,6 +17,7 @@ import useBuilderStore from '@/store/useBuilderStore';
 import { ELEMENT_CATALOG, PREBUILT_CATALOG } from '@/builder/catalog';
 import { createDefaultFooter } from '@/lib/defaultPageData';
 import { resolveDropAction, type BuilderDragData, type CanvasDragData, type PaletteDragData } from '@/builder/dnd';
+import { BuilderPointerSensor } from '@/builder/pointerSensor';
 import { CanvasDndContext, type CanvasDndState } from './CanvasDndContext';
 
 const collisionDetection: CollisionDetection = (args) => {
@@ -40,7 +40,7 @@ function OverlayCard({ title, subtitle }: { title: string; subtitle?: string }) 
 export function CanvasDndProvider({ children }: { children: ReactNode }) {
   const [active, setActive] = useState<BuilderDragData | null>(null);
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(BuilderPointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
@@ -119,7 +119,7 @@ export function CanvasDndProvider({ children }: { children: ReactNode }) {
     >
       <CanvasDndContext.Provider value={value}>
         {children}
-        <DragOverlay dropAnimation={null}>{overlay}</DragOverlay>
+        <DragOverlay dropAnimation={null} zIndex={200}>{overlay}</DragOverlay>
       </CanvasDndContext.Provider>
     </DndContext>
   );

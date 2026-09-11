@@ -21,7 +21,10 @@ import Loading from '@/components/Common/LoadingUI';
 import {
   filterAssetsVisibleToUsers,
   getUserVisibleAssetIds,
+  isAdminGlobalAsset,
+  rememberAssetVisibleToUsers,
   setUserVisibleAssetIds,
+  canDeleteAsset,
 } from '@/lib/assetVisibility';
 import {
   DashboardCard,
@@ -39,7 +42,7 @@ export default function DashboardAssets() {
     const location = useLocation();
     const basePath = location.pathname.startsWith('/admin') ? '/admin' : '/dashboard';
     const isAdmin = basePath === '/admin';
-    const uploadScope = isAdmin ? { scope: 'GLOBAL' as const } : {};
+    const uploadScope = isAdmin ? { scope: 'GLOBAL' as const } : { scope: 'USER' as const };
     const { deleteAsset, fetchAssets, getScopedAssets, uploadAsset, importAssetFromUrl } = useBuilderStore();
 
     const [isFetching, setIsFetching] = useState(true);
@@ -51,7 +54,7 @@ export default function DashboardAssets() {
 
     useEffect(() => {
         setIsFetching(true);
-        void fetchAssets().finally(() => setIsFetching(false));
+        void Promise.all([fetchAssets(), fetchAssets({ scope: 'GLOBAL' })]).finally(() => setIsFetching(false));
     }, [fetchAssets]);
 
     const [search, setSearch] = useState('');
@@ -114,7 +117,8 @@ export default function DashboardAssets() {
     const doUpload = async (file: File) => {
         setUploadingCount(c => c + 1);
         try {
-            await uploadAsset(file, uploadScope);
+            const asset = await uploadAsset(file, uploadScope);
+            if (isAdmin && asset?.id) rememberAssetVisibleToUsers(asset.id);
             toast({ title: "Asset Uploaded", description: "Your asset has been successfully uploaded." });
         } catch (error: any) {
             toast({
@@ -144,7 +148,8 @@ export default function DashboardAssets() {
         if (urlInput) {
             setUploadingCount(c => c + 1);
             try {
-                await importAssetFromUrl(urlName || 'Imported Asset', urlInput, uploadScope);
+                const asset = await importAssetFromUrl(urlName || 'Imported Asset', urlInput, uploadScope);
+                if (isAdmin && asset?.id) rememberAssetVisibleToUsers(asset.id);
                 toast({ title: "Asset Imported", description: "Your asset has been successfully imported." });
                 setUrlInput('');
                 setUrlName('');
@@ -206,6 +211,17 @@ export default function DashboardAssets() {
     };
 
     const handleDelete = async (id: string) => {
+        const target = allAssets.find((asset) => asset.id === id);
+        if (!target || !canDeleteAsset(target)) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot delete this asset',
+                description: isAdminGlobalAsset(target || {})
+                    ? 'Global admin assets cannot be deleted from a user account.'
+                    : 'You can only delete assets you uploaded.',
+            });
+            return;
+        }
         setDeletingIds(prev => new Set(prev).add(id));
         try {
             await deleteAsset(id);
@@ -443,7 +459,7 @@ export default function DashboardAssets() {
                                               <DashboardCardBadge position="top-left" className="static px-1.5 py-0.5 text-[10px] capitalize">
                                                  {item.type || 'File'}
                                               </DashboardCardBadge>
-                                              {(item.scope === 'GLOBAL' || item.isGlobal) && (
+                                              {(isAdminGlobalAsset(item)) && (
                                               <span className={cn(dashboardCardBadgeClass, 'static inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-[#dedfeb]')}>
                                                  <Globe className="w-2.5 h-2.5" />
                                                  Global
@@ -495,6 +511,7 @@ export default function DashboardAssets() {
                                                             </>
                                                         )}
                                                     </button>
+                                                    {canDeleteAsset(item) && (
                                                     <button
                                                         type="button"
                                                         className="inline-flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-rose-100 bg-white px-2 text-[11px] font-medium text-[#ba1a1a] hover:bg-rose-50"
@@ -506,6 +523,7 @@ export default function DashboardAssets() {
                                                         <Trash2 className="h-3 w-3" />
                                                         Delete
                                                     </button>
+                                                    )}
                                                 </DashboardCardFooter>
                                             )}
                                         </DashboardCardBody>
@@ -573,6 +591,7 @@ export default function DashboardAssets() {
                                         <><Copy className="h-3.5 w-3.5" /> Copy</>
                                     )}
                                 </button>
+                                {canDeleteAsset(previewAsset) && (
                                 <button
                                     type="button"
                                     className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-rose-100 bg-white px-3 text-xs font-medium text-[#ba1a1a] hover:bg-rose-50 sm:flex-none"
@@ -581,6 +600,7 @@ export default function DashboardAssets() {
                                     <Trash2 className="h-3.5 w-3.5" />
                                     Delete
                                 </button>
+                                )}
                             </div>
                         </div>
                     )}

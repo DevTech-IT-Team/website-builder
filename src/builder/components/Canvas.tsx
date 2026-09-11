@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { useDraggable } from '@dnd-kit/core';
+import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { Copy, Trash2, ChevronUp, GripVertical, EyeOff, Lock, Unlock } from 'lucide-react';
 import { NavbarPreview } from '@/components/preview/NavbarPreview';
 import { FooterPreview } from '@/components/preview/FooterPreview';
@@ -11,9 +11,10 @@ import { normalizePageSections } from '@/builder/adapter';
 import { DEVICE_WIDTHS, type CanvasContainer, type CanvasElement, type CanvasSection, type DeviceId, type NodeKind } from '@/builder/types';
 import { resolveStyles, stylesToCss } from '@/builder/styles';
 import { sortByOrder } from '@/builder/tree';
-import { canvasDragId, ELEMENT_ACCEPTS, type CanvasDragData } from '@/builder/dnd';
+import { canvasDragId, canvasHitId, ELEMENT_ACCEPTS, type CanvasDragData } from '@/builder/dnd';
 import { DropZone } from './DropZone';
 import { CanvasElementView } from './CanvasPrimitives';
+import { useTemplatePieceBridge } from '@/components/sections/TemplatePieceBridge';
 
 function useIsSelected(id: string) {
   return useBuilderStore((state) => state.editor.selectedNodeId === id);
@@ -41,6 +42,7 @@ function NodeFrame({
   index,
   pageId,
   dragDisabled,
+  dragHandleOnly,
 }: {
   id: string;
   kind: NodeKind;
@@ -57,75 +59,89 @@ function NodeFrame({
   index?: number;
   pageId?: string;
   dragDisabled?: boolean;
+  dragHandleOnly?: boolean;
 }) {
   const selected = useIsSelected(id);
   const selectNode = useBuilderStore((state) => state.selectNode);
   const deleteCanvasNode = useBuilderStore((state) => state.deleteCanvasNode);
   const duplicateCanvasNode = useBuilderStore((state) => state.duplicateCanvasNode);
   const updateCanvasNode = useBuilderStore((state) => state.updateCanvasNode);
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+  const dragData = {
+    source: 'canvas' as const,
+    nodeId: id,
+    kind,
+    type: type || kind,
+    name,
+    parentId,
+    index,
+    pageId,
+    locked,
+  } satisfies CanvasDragData;
+  const cannotDrag = previewMode || locked || dragDisabled;
+  const { attributes, listeners, setNodeRef: setDragRef, setActivatorNodeRef, isDragging } = useDraggable({
     id: canvasDragId(kind, id),
-    data: {
-      source: 'canvas',
-      nodeId: id,
-      kind,
-      type: type || kind,
-      name,
-      parentId,
-      index,
-      pageId,
-      locked,
-    } satisfies CanvasDragData,
-    disabled: previewMode || locked || dragDisabled,
+    data: dragData,
+    disabled: cannotDrag,
+  });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: canvasHitId(kind, id),
+    data: dragData,
+    disabled: previewMode || isDragging,
   });
 
   return (
     <div
-      ref={setNodeRef}
+      ref={setDropRef}
       data-canvas-node={id}
       data-canvas-kind={kind}
       data-canvas-name={name}
       className={cn(
-        'canvas-node relative',
+        'canvas-node group/node relative',
+        !cannotDrag && 'cursor-grab active:cursor-grabbing',
         selected && !previewMode && 'is-selected',
         hidden && 'opacity-40',
         isDragging && 'opacity-40',
+        isOver && !isDragging && !previewMode && 'ring-2 ring-sky-400 ring-offset-2',
         className
       )}
       style={style}
-      {...(!previewMode && !locked && !dragDisabled ? listeners : {})}
-      {...(!previewMode && !locked && !dragDisabled ? attributes : {})}
       onClick={(event) => {
         if (previewMode) return;
         event.stopPropagation();
         selectNode(id, kind);
       }}
     >
+      {!cannotDrag && (
+        <div
+          ref={setActivatorNodeRef}
+          className="absolute left-0 top-0 z-[60] flex h-full w-6 cursor-grab items-start justify-center hover:bg-sky-500/10 active:cursor-grabbing"
+          title="Drag to move"
+          aria-label={`Move ${name}`}
+          style={{ touchAction: 'none' }}
+          {...listeners}
+          {...attributes}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <GripVertical className="mt-2 h-4 w-4 text-slate-500" />
+        </div>
+      )}
+      <div
+        ref={setDragRef}
+        style={{ touchAction: cannotDrag ? undefined : 'none' }}
+        {...(!cannotDrag && !dragHandleOnly ? listeners : {})}
+      >
       {!previewMode && (
         <div
           className={cn(
-            'canvas-node-label pointer-events-none absolute -top-6 left-0 z-20 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white',
+            'canvas-node-label absolute left-7 top-1 z-30 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white',
             chromeColor(kind),
-            selected ? 'opacity-100 pointer-events-auto' : 'opacity-0'
+            selected ? 'opacity-100' : 'opacity-0 group-hover/node:opacity-100',
           )}
         >
-          {!locked && (
-            <button
-              type="button"
-              className="rounded p-0.5 hover:bg-white/20"
-              aria-label={`Move ${name}`}
-              title="Move"
-              onClick={(event) => event.stopPropagation()}
-              {...listeners}
-              {...attributes}
-            >
-              <GripVertical className="h-3 w-3" />
-            </button>
-          )}
           <span>{name}</span>
           {locked && <Lock className="h-3 w-3 opacity-80" />}
           {selected && (
-            <span className="ml-1 flex items-center gap-0.5">
+            <span className="ml-1 flex items-center gap-0.5" data-dnd-ignore="true" onPointerDown={(event) => event.stopPropagation()}>
               {onSelectParent && (
                 <button type="button" className="rounded p-0.5 hover:bg-white/20" aria-label="Select parent" title="Select parent" onClick={(event) => { event.stopPropagation(); onSelectParent(); }}>
                   <ChevronUp className="h-3 w-3" />
@@ -166,6 +182,7 @@ function NodeFrame({
         </div>
       )}
       {children}
+      </div>
     </div>
   );
 }
@@ -320,8 +337,8 @@ const CanvasSectionNode = memo(function CanvasSectionNode({
       parentId={pageId}
       index={index}
       pageId={pageId}
+      dragHandleOnly={!isCanvas}
       style={isCanvas ? css : undefined}
-      className={cn(!previewMode && 'cursor-pointer')}
     >
       {isCanvas ? (
         <>
@@ -363,6 +380,7 @@ const CanvasSectionNode = memo(function CanvasSectionNode({
 export function BuilderCanvas() {
   const page = useBuilderStore((state) => state.getActivePage());
   const editor = useBuilderStore((state) => state.editor);
+  const pieceChrome = useTemplatePieceBridge(!editor.previewMode);
   const updateNavbar = useBuilderStore((state) => state.updateNavbar);
   const updateFooter = useBuilderStore((state) => state.updateFooter);
   const selectNode = useBuilderStore((state) => state.selectNode);
@@ -514,6 +532,8 @@ export function BuilderCanvas() {
   };
 
   return (
+    <>
+    {pieceChrome}
     <div
       ref={scrollRef}
       id="tour-canvas"
@@ -566,7 +586,7 @@ export function BuilderCanvas() {
           style={{
             width: scaledWidth,
             height: scaledHeight,
-            overflow: 'clip',
+            overflow: previewMode ? 'clip' : 'visible',
             overflowClipMargin: '32px',
           }}
         >
@@ -574,8 +594,8 @@ export function BuilderCanvas() {
             id="canvas-root"
             ref={frameRef}
             className={cn(
-              'canvas-edit light-canvas absolute left-0 top-0 overflow-x-hidden rounded-xl bg-white shadow-elevated',
-              previewMode && 'is-preview'
+              'canvas-edit light-canvas absolute left-0 top-0 rounded-xl bg-white shadow-elevated',
+              previewMode ? 'is-preview overflow-x-hidden' : 'overflow-visible',
             )}
             style={{
               width: frameWidth,
@@ -662,5 +682,6 @@ export function BuilderCanvas() {
       </div>
       <button type="button" className="hidden" data-canvas-fit onClick={fitCanvas} aria-hidden />
     </div>
+    </>
   );
 }

@@ -1,10 +1,14 @@
 import apiClient from './client';
 
 const websiteApi = {
-  getWebsites: (params) => apiClient.get('/websites', { params }),
-  getWebsiteById: (id) => apiClient.get(`/websites/${id}`),
+  // GET /websites and GET /websites/:id overwrite local canvas pages after create/edit.
+  getWebsites: (/* params */) => Promise.resolve({ data: { websites: [] } }),
+  // getWebsites: (params) => apiClient.get('/websites', { params }),
+  getWebsiteById: (/* id */) => Promise.resolve({ data: { website: null } }),
+  // getWebsiteById: (id) => apiClient.get(`/websites/${id}`),
   createWebsite: (data) => apiClient.post('/websites', data),
-  updateWebsite: (id, data) => apiClient.patch(`/websites/${id}`, data),
+  updateWebsite: (/* id, data */) => Promise.resolve({ data: {} }),
+  // updateWebsite: (id, data) => apiClient.patch(`/websites/${id}`, data),
   getWebsitesAll: (params) => apiClient.get('/websites/all', { params }),
   deleteWebsite: (id) => apiClient.delete(`/websites/${id}`),
   restoreWebsite: (id) => apiClient.post(`/websites/${id}/restore`),

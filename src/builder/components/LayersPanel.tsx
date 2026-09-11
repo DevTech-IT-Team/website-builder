@@ -79,17 +79,23 @@ function LayerRow({
         onClick={() => selectNode(node.id, node.kind)}
       >
         {dragHandleProps ? (
-          <button
-            type="button"
+          <div
+            role="button"
+            tabIndex={0}
             className="mt-0.5 flex h-4 w-4 shrink-0 cursor-grab items-center justify-center rounded text-slate-300 hover:bg-slate-100 hover:text-slate-500 active:cursor-grabbing"
+            style={{ touchAction: 'none' }}
             onClick={(event) => event.stopPropagation()}
             aria-label={`Reorder ${node.name}`}
-            title="Reorder"
+            title="Drag to reorder"
             {...dragHandleProps.attributes}
             {...dragHandleProps.listeners}
+            onPointerDown={(event) => {
+              dragHandleProps.listeners?.onPointerDown?.(event);
+              event.stopPropagation();
+            }}
           >
             <GripVertical className="h-3 w-3" />
-          </button>
+          </div>
         ) : null}
         {hasChildren ? (
           <button

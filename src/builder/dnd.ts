@@ -34,6 +34,10 @@ export function canvasDragId(kind: NodeKind, id: string): string {
   return `node:${kind}:${id}`;
 }
 
+export function canvasHitId(kind: NodeKind, id: string): string {
+  return `hit:${kind}:${id}`;
+}
+
 export function layerDragId(kind: NodeKind, id: string): string {
   return `layer:${kind}:${id}`;
 }
@@ -48,7 +52,7 @@ export function dropZoneId(parentKind: NodeKind, parentId: string, index: number
 
 export type ParsedDragId =
   | { origin: 'palette'; itemKind: CatalogItem['kind']; catalogId: string }
-  | { origin: 'node' | 'layer'; kind: NodeKind; nodeId: string }
+  | { origin: 'node' | 'layer' | 'hit'; kind: NodeKind; nodeId: string }
   | { origin: 'drop'; parentKind: NodeKind; parentId: string; index: number; edge: DropTarget['edge'] };
 
 export function parseDragId(id: string): ParsedDragId | null {
@@ -61,7 +65,7 @@ export function parseDragId(id: string): ParsedDragId | null {
       catalogId: parts.slice(2).join(':'),
     };
   }
-  if ((origin === 'node' || origin === 'layer') && parts.length >= 3) {
+  if ((origin === 'node' || origin === 'layer' || origin === 'hit') && parts.length >= 3) {
     return { origin, kind: parts[1] as NodeKind, nodeId: parts.slice(2).join(':') };
   }
   if (origin === 'drop' && parts.length >= 5) {
@@ -93,7 +97,7 @@ function dropTargetFromOver(overId: string, overData: unknown, pageId?: string):
     };
   }
 
-  if (parsed && (parsed.origin === 'node' || parsed.origin === 'layer')) {
+  if (parsed && (parsed.origin === 'node' || parsed.origin === 'layer' || parsed.origin === 'hit')) {
     const canvas = data && 'source' in data ? (data as CanvasDragData) : null;
     if (parsed.kind === 'container') {
       return {
@@ -178,7 +182,7 @@ export function resolveDropAction(
     return { type: 'move', nodeId: activeParsed.nodeId, target };
   }
 
-  if (overParsed && (overParsed.origin === 'node' || overParsed.origin === 'layer')) {
+  if (overParsed && (overParsed.origin === 'node' || overParsed.origin === 'layer' || overParsed.origin === 'hit')) {
     if (activeParsed.nodeId === overParsed.nodeId) return null;
 
     if (activeParsed.kind === 'section' && overParsed.kind === 'section') {
